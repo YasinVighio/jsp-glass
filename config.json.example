@@ -1,0 +1,5 @@
+{
+  "catalinaHome": "/path/to/tomcat",
+  "catalinaBase": "/path/to/tomcat",
+  "webappContext": "ROOT"
+}

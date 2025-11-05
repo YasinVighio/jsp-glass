@@ -1,0 +1,14 @@
+{
+  "tomcatHome": "C:\\apache-tomcat-9.0.54",
+  "tomcatBase": "C:\\apache-tomcat-9.0.54",
+  "webapps": [
+    {
+      "name": "myapp",
+      "path": "C:\\MyProject\\src\\main\\webapp",
+      "context": "myapp"
+    }
+  ],
+  "debugPort": 8000,
+  "compileJsp": true,
+  "keepGenerated": true
+}

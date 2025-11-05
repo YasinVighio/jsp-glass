@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "jsp",
+      "request": "attach",
+      "name": "Debug JSP in Tomcat",
+      "hostName": "localhost",
+      "port": 8000
+    },
+    {
+      "type": "java",
+      "request": "attach",
+      "name": "Attach to Tomcat (Java)",
+      "hostName": "localhost",
+      "port": 8000,
+      "projectName": "your-project-name"
+    }
+  ]
+}
