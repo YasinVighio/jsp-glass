@@ -162,8 +162,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Contact
 
 - **Publisher:** syntaxkraken
-- **Repository:** https://github.com/syntaxkraken/jsp-glass
-- **Issues:** https://github.com/syntaxkraken/jsp-glass/issues
+- **Repository:** https://github.com/YasinVighio/jsp-glass
+- **Issues:** https://github.com/YasinVighio/jsp-glass/issues
 
 ---
 

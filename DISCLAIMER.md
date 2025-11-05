@@ -51,7 +51,7 @@ If you encounter bugs or issues:
 1. **Check existing documentation** (README.md, SETUP.md, IMPLEMENTATION.md)
 2. **Enable debug logging**: Set `"jsp.enableDebugLogging": true` in settings
 3. **Review console output**: Help → Toggle Developer Tools → Console
-4. **Report issues**: https://github.com/syntaxkraken/jsp-glass/issues
+4. **Report issues**: https://github.com/YasinVighio/jsp-glass/issues
 
 When reporting, please include:
 - VS Code version

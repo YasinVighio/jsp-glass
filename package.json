@@ -7,7 +7,7 @@
   "icon": "icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/syntaxkraken/jsp-glass.git"
+    "url": "https://github.com/YasinVighio/jsp-glass.git"
   },
   "engines": {
     "vscode": "^1.74.0"
