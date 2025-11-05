@@ -1,12 +1,13 @@
 {
-  "name": "vscode-jsp-debug",
-  "displayName": "JSP Debug for Tomcat",
-  "description": "Debug JSP files running on Apache Tomcat with breakpoint support",
+  "name": "jsp-glass",
+  "displayName": "JSP Glass",
+  "description": "Debug JSP files running on Apache Tomcat with accurate breakpoint mapping using SMAP",
   "version": "1.0.0",
-  "publisher": "jsp-debug",
+  "publisher": "syntaxkraken",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/vscode-jsp-debug.git"
+    "url": "https://github.com/syntaxkraken/jsp-glass.git"
   },
   "engines": {
     "vscode": "^1.74.0"

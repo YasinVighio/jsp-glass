@@ -376,11 +376,29 @@ export class JspMapper {
    * Find JSP line from servlet line using SMAP data (exact match or interpolation)
    */
   private findReverseMappedLine(smapMappings: Map<number, number>, servletLine: number): number | null {
-    // Build reverse mapping
+    console.log(`JSP Debug: === REVERSE MAPPING LOOKUP ===`);
+    console.log(`JSP Debug: Looking for servlet line ${servletLine} in SMAP mappings`);
+    
+    // Build reverse mapping: Servlet -> JSP
+    // IMPORTANT: SMAP has ranges like "7,52:128" meaning JSP 7-58 map to servlet 128 onwards
+    // So we need to find which JSP line range contains our servlet line
+    
     const reverseMappings = new Map<number, number>(); // Servlet -> JSP
+    
+    // Collect all JSP->Servlet mappings and log them
+    const mappingList: Array<{jspLine: number, servletLine: number}> = [];
     for (const [jspLine, servletLineNum] of smapMappings.entries()) {
+      mappingList.push({jspLine, servletLine: servletLineNum});
       reverseMappings.set(servletLineNum, jspLine);
     }
+    
+    // Sort by servlet line for better analysis
+    mappingList.sort((a, b) => a.servletLine - b.servletLine);
+    
+    console.log(`JSP Debug: Available SMAP mappings (sorted by servlet line):`);
+    mappingList.forEach(m => {
+      console.log(`  JSP ${m.jspLine} -> Servlet ${m.servletLine}`);
+    });
 
     // Check for exact reverse mapping
     if (reverseMappings.has(servletLine)) {
@@ -389,46 +407,42 @@ export class JspMapper {
       return mappedJspLine;
     }
 
-    // Find bracketing mappings for interpolation
-    let previousServletLine = -1;
-    let previousJspLine = -1;
-    let nextServletLine = Infinity;
-    let nextJspLine = -1;
-
-    for (const [servletLineNum, jspLine] of reverseMappings.entries()) {
-      if (servletLineNum <= servletLine && servletLineNum > previousServletLine) {
-        previousServletLine = servletLineNum;
-        previousJspLine = jspLine;
+    // Find the JSP line range that contains this servlet line
+    // SMAP format: "7,52:128" means JSP 7-58 map to servlet starting at 128
+    // So if servlet line is 130, it should map back to JSP line 9 (7 + (130-128))
+    
+    let foundJspLine: number | null = null;
+    
+    for (let i = 0; i < mappingList.length; i++) {
+      const current = mappingList[i];
+      const next = mappingList[i + 1];
+      
+      if (next) {
+        // If servlet line is between current and next mapping
+        if (servletLine >= current.servletLine && servletLine < next.servletLine) {
+          const servletOffset = servletLine - current.servletLine;
+          foundJspLine = current.jspLine + servletOffset;
+          console.log(`JSP Debug: 🎯 FOUND IN RANGE - Servlet ${servletLine} is in range [${current.servletLine}, ${next.servletLine})`);
+          console.log(`JSP Debug: JSP range starts at ${current.jspLine}, offset ${servletOffset} -> JSP line ${foundJspLine}`);
+          break;
+        }
+      } else {
+        // Last mapping - check if servlet line is after it
+        if (servletLine >= current.servletLine) {
+          const servletOffset = servletLine - current.servletLine;
+          foundJspLine = current.jspLine + servletOffset;
+          console.log(`JSP Debug: 🎯 AFTER LAST MAPPING - Servlet ${servletLine} is after ${current.servletLine}`);
+          console.log(`JSP Debug: JSP starts at ${current.jspLine}, offset ${servletOffset} -> JSP line ${foundJspLine}`);
+          break;
+        }
       }
-      
-      if (servletLineNum >= servletLine && servletLineNum < nextServletLine) {
-        nextServletLine = servletLineNum;
-        nextJspLine = jspLine;
-      }
+    }
+    
+    if (foundJspLine !== null) {
+      return Math.max(1, foundJspLine);
     }
 
-    // Interpolate between known mappings
-    if (previousServletLine !== -1 && nextServletLine !== Infinity && nextServletLine !== previousServletLine) {
-      const servletRange = nextServletLine - previousServletLine;
-      const jspRange = nextJspLine - previousJspLine;
-      const servletOffset = servletLine - previousServletLine;
-      
-      const ratio = servletOffset / servletRange;
-      const interpolatedJspLine = Math.round(previousJspLine + (ratio * jspRange));
-      
-      console.log(`JSP Debug: 🎯 REVERSE INTERPOLATED - Servlet ${servletLine} -> JSP ${interpolatedJspLine}`);
-      console.log(`JSP Debug: Based on Servlet ${previousServletLine}-${nextServletLine} → JSP ${previousJspLine}-${nextJspLine}`);
-      
-      return Math.max(1, interpolatedJspLine);
-    }
-
-    // Use closest mapping (servlet generates multiple lines per JSP line, so return the JSP line)
-    if (previousServletLine !== -1) {
-      console.log(`JSP Debug: ⚠️ REVERSE CLOSEST - Servlet ${servletLine} -> JSP ${previousJspLine}`);
-      return previousJspLine;
-    }
-
-    console.error(`JSP Debug: ❌ No reverse mapping for servlet line ${servletLine}`);
+    console.error(`JSP Debug: ❌ No reverse mapping found for servlet line ${servletLine}`);
     return null;
   }
 

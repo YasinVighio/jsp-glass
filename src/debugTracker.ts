@@ -52,24 +52,51 @@ export class JspDebugTracker implements vscode.DebugAdapterTracker {
   }
 
   /**
-   * Handle stack trace response - remap servlet sources to JSP
+   * Handle stack trace response - fix JSP line numbers
    */
   private handleStackTraceResponse(message: any): void {
     if (!message.body || !message.body.stackFrames) {
       return;
     }
 
-    let hasServletFrames = false;
+    let hasJspFrames = false;
     
     for (const frame of message.body.stackFrames) {
       if (frame.source && frame.source.path) {
         const sourcePath = frame.source.path;
         
-        // Check if this is a servlet file
-        if (sourcePath.includes('_jsp.java')) {
-          hasServletFrames = true;
+        // Check if this is a JSP file (debugger already mapped it, but line number is wrong)
+        if (sourcePath.toLowerCase().endsWith('.jsp')) {
+          hasJspFrames = true;
           
-          console.log(`JSP Debug: ========== DEBUGGER STOPPED IN SERVLET ==========`);
+          console.log(`JSP Debug: ========== DEBUGGER STOPPED IN JSP (WRONG LINE) ==========`);
+          console.log(`JSP Debug: JSP file: ${sourcePath}`);
+          console.log(`JSP Debug: Reported line: ${frame.line} (THIS IS WRONG - it's the servlet line)`);
+          
+          // The frame.line is actually the SERVLET line number, not the JSP line!
+          // We need to reverse map it to get the correct JSP line
+          const servletLine = frame.line;
+          const correctJspLine = this.jspMapper.mapServletLineToJspLine(sourcePath, servletLine);
+          
+          if (correctJspLine && correctJspLine !== servletLine) {
+            console.log(`JSP Debug: ✅ FIXING LINE NUMBER - Servlet line ${servletLine} -> Correct JSP line ${correctJspLine}`);
+            
+            // Fix the line number
+            frame.line = correctJspLine;
+            
+            console.log(`JSP Debug: Updated frame to show correct JSP line ${correctJspLine}`);
+          } else if (correctJspLine === servletLine) {
+            console.log(`JSP Debug: ⚠️ Line number unchanged (${servletLine}) - mapping returned same value`);
+          } else {
+            console.error(`JSP Debug: ❌ Could not map servlet line ${servletLine} to correct JSP line`);
+          }
+        }
+        
+        // Also handle if debugger still shows servlet file
+        else if (sourcePath.includes('_jsp.java')) {
+          hasJspFrames = true;
+          
+          console.log(`JSP Debug: ========== DEBUGGER STOPPED IN SERVLET FILE ==========`);
           console.log(`JSP Debug: Servlet file: ${sourcePath}`);
           console.log(`JSP Debug: Servlet line: ${frame.line}`);
           
@@ -78,7 +105,7 @@ export class JspDebugTracker implements vscode.DebugAdapterTracker {
           if (jspFilePath) {
             console.log(`JSP Debug: Found JSP file: ${jspFilePath}`);
             
-            // Use improved reverse mapping
+            // Map servlet line to JSP line
             const jspLine = this.jspMapper.mapServletLineToJspLine(jspFilePath, frame.line);
             if (jspLine) {
               console.log(`JSP Debug: ✅ REMAPPING - Servlet ${sourcePath}:${frame.line} -> JSP ${jspFilePath}:${jspLine}`);
@@ -99,10 +126,8 @@ export class JspDebugTracker implements vscode.DebugAdapterTracker {
       }
     }
 
-    if (hasServletFrames) {
-      console.log(`JSP Debug: Servlet frames detected and processed`);
-      // Force VS Code to refresh the debug view
-      vscode.commands.executeCommand('workbench.debug.action.focusCallStackView');
+    if (hasJspFrames) {
+      console.log(`JSP Debug: JSP frames detected and line numbers corrected`);
     }
   }
 
