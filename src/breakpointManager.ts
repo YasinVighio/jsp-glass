@@ -58,14 +58,32 @@ export class JspBreakpointManager {
       return;
     }
 
-    // Create line mapping
-    const servletLine = await this.mapJspLineToServletLine(jspFile, servletJavaFile, jspLine);
+    // Map JSP line to servlet line using improved mapping
+    console.log(`JSP Debug: Attempting to map JSP line ${jspLine} in file ${jspFile}`);
+    
+    // First, debug the servlet file to see what we're working with
+    this.jspMapper.debugServletFile(jspFile);
+    
+    const servletLine = this.jspMapper.mapJspLineToServletLine(jspFile, jspLine);
     if (!servletLine) {
-      vscode.window.showWarningMessage(
-        `Could not map JSP line ${jspLine} to servlet line in ${path.basename(servletJavaFile)}`
-      );
+      console.error(`JSP Debug: MAPPING FAILED for JSP line ${jspLine}`);
+      
+      vscode.window.showErrorMessage(
+        `Failed to map JSP line ${jspLine} to servlet line. Check the Developer Console (F12) for detailed analysis. The servlet file may not contain line mapping information, or Tomcat may not be configured correctly.`,
+        'Open Console'
+      ).then(choice => {
+        if (choice === 'Open Console') {
+          vscode.commands.executeCommand('workbench.action.toggleDevTools');
+        }
+      });
       return;
     }
+
+    console.log(`JSP Debug: ✅ Successfully mapped JSP line ${jspLine} to servlet line ${servletLine}`);
+
+    // Always analyze the mapping for debugging purposes
+    // This will help identify if there are discrepancies
+    this.jspMapper.analyzeServletLineContext(jspFile, jspLine, servletLine, servletLine);
 
     // Create servlet breakpoint
     const servletUri = vscode.Uri.file(servletJavaFile);
@@ -117,40 +135,6 @@ export class JspBreakpointManager {
           break;
         }
       }
-    }
-  }
-
-  /**
-   * Map JSP line number to servlet line number
-   */
-  private async mapJspLineToServletLine(jspFile: string, servletFile: string, jspLine: number): Promise<number | null> {
-    try {
-      if (!fs.existsSync(servletFile)) {
-        return null;
-      }
-
-      const servletContent = fs.readFileSync(servletFile, 'utf8');
-      const lines = servletContent.split('\n');
-
-      // Look for the line mapping comment that corresponds to this JSP line
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const match = line.match(/\/\/\s*Line\s+(\d+),\s*JSP\s*file:/i);
-        
-        if (match) {
-          const commentJspLine = parseInt(match[1]);
-          if (commentJspLine === jspLine) {
-            return i + 1; // Return 1-based line number
-          }
-        }
-      }
-
-      // Fallback: use the JSP line number directly
-      return jspLine;
-
-    } catch (error) {
-      console.error('Error mapping JSP line to servlet line:', error);
-      return null;
     }
   }
 

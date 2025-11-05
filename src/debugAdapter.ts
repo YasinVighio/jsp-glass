@@ -158,18 +158,24 @@ export class JspDebugSession extends DebugSession {
       return;
     }
 
-    // Create servlet breakpoint mapping
+    // Map JSP lines to servlet lines
     try {
-      const mappingFile = await this.jspMapper.createServletBreakpointMapping(sourcePath, clientLines);
-      
-      if (mappingFile) {
-        // Read the mapping to get servlet lines
-        const mappingData = JSON.parse(fs.readFileSync(mappingFile, 'utf8'));
+      const servletJavaFile = this.jspMapper.getServletSourceFilePath(sourcePath);
+      if (!servletJavaFile) {
+        this.sendEvent(new OutputEvent(`⚠ Servlet source file not found for ${path.basename(sourcePath)}\n`));
+        response.body = { breakpoints };
+        this.sendResponse(response);
+        return;
+      }
+
+      // Map each JSP line to servlet line
+      for (const clientLine of clientLines) {
+        const servletLine = this.jspMapper.mapJspLineToServletLine(sourcePath, clientLine);
         
-        for (const mapping of mappingData.mappings) {
+        if (servletLine) {
           const servletMapping: ServletBreakpointMapping = {
             jspFile: sourcePath,
-            jspLine: mapping.jspLine,
+            jspLine: clientLine,
             servletClass: this.jspMapper.getServletClassName(sourcePath),
             servletFile: servletJavaFile
           };
@@ -178,29 +184,27 @@ export class JspDebugSession extends DebugSession {
           this.servletToJspMapping.set(servletMapping.servletClass, sourcePath);
           
           // Create verified breakpoint for JSP
-          const bp = new Breakpoint(true, mapping.jspLine);
+          const bp = new Breakpoint(true, clientLine);
           breakpoints.push(bp);
           
           // Set actual breakpoint in servlet file
-          await this.setServletBreakpoint(servletMapping, mapping.servletLine);
+          await this.setServletBreakpoint(servletMapping, servletLine);
           
-          this.sendEvent(new OutputEvent(`✓ JSP breakpoint mapped: ${path.basename(sourcePath)}:${mapping.jspLine} -> ${path.basename(servletJavaFile)}:${mapping.servletLine}\n`));
-        }
-        
-      } else {
-        // Fallback: create breakpoints without mapping
-        for (const line of clientLines) {
-          const bp = new Breakpoint(true, line);
+          this.sendEvent(new OutputEvent(`✓ JSP breakpoint mapped: ${path.basename(sourcePath)}:${clientLine} -> ${path.basename(servletJavaFile)}:${servletLine}\n`));
+        } else {
+          // Fallback: create breakpoint without mapping
+          const bp = new Breakpoint(true, clientLine);
           breakpoints.push(bp);
           
           const servletMapping: ServletBreakpointMapping = {
             jspFile: sourcePath,
-            jspLine: line,
+            jspLine: clientLine,
             servletClass: this.jspMapper.getServletClassName(sourcePath),
             servletFile: servletJavaFile
           };
           
-          await this.setServletBreakpoint(servletMapping, line); // Use same line number as fallback
+          await this.setServletBreakpoint(servletMapping, clientLine); // Use same line number as fallback
+          this.sendEvent(new OutputEvent(`⚠ No line mapping found for JSP line ${clientLine}, using direct mapping\n`));
         }
       }
     } catch (error) {

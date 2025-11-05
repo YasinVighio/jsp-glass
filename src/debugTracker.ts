@@ -68,28 +68,88 @@ export class JspDebugTracker implements vscode.DebugAdapterTracker {
         // Check if this is a servlet file
         if (sourcePath.includes('_jsp.java')) {
           hasServletFrames = true;
-          const jspMapping = this.findJspMappingForServlet(sourcePath);
           
-          if (jspMapping) {
-            // Remap the source to JSP file
-            frame.source.name = path.basename(jspMapping.jspPath);
-            frame.source.path = jspMapping.jspPath;
+          console.log(`JSP Debug: ========== DEBUGGER STOPPED IN SERVLET ==========`);
+          console.log(`JSP Debug: Servlet file: ${sourcePath}`);
+          console.log(`JSP Debug: Servlet line: ${frame.line}`);
+          
+          // Find corresponding JSP file
+          const jspFilePath = this.findJspFileForServlet(sourcePath);
+          if (jspFilePath) {
+            console.log(`JSP Debug: Found JSP file: ${jspFilePath}`);
             
-            // Remap line number from servlet to JSP
-            const jspLine = jspMapping.lineMappings.get(frame.line);
+            // Use improved reverse mapping
+            const jspLine = this.jspMapper.mapServletLineToJspLine(jspFilePath, frame.line);
             if (jspLine) {
+              console.log(`JSP Debug: ✅ REMAPPING - Servlet ${sourcePath}:${frame.line} -> JSP ${jspFilePath}:${jspLine}`);
+              
+              // Remap the source to JSP file
+              frame.source.name = path.basename(jspFilePath);
+              frame.source.path = jspFilePath;
               frame.line = jspLine;
+              
+              console.log(`JSP Debug: Updated frame to show JSP file at line ${jspLine}`);
+            } else {
+              console.error(`JSP Debug: ❌ Could not map servlet line ${frame.line} to JSP line`);
             }
-            
-            console.log(`Remapped servlet frame: ${sourcePath}:${frame.line} -> ${jspMapping.jspPath}:${jspLine || frame.line}`);
+          } else {
+            console.error(`JSP Debug: ❌ Could not find JSP file for servlet ${sourcePath}`);
           }
         }
       }
     }
 
     if (hasServletFrames) {
+      console.log(`JSP Debug: Servlet frames detected and processed`);
       // Force VS Code to refresh the debug view
       vscode.commands.executeCommand('workbench.debug.action.focusCallStackView');
+    }
+  }
+
+  /**
+   * Find JSP file for a servlet file (improved method)
+   */
+  private findJspFileForServlet(servletPath: string): string | null {
+    try {
+      // Extract servlet name from path like: .../work/Catalina/localhost/myapp/org/apache/jsp/index_jsp.java
+      const servletFileName = path.basename(servletPath, '.java');
+      
+      // Convert servlet name back to JSP name: index_jsp -> index.jsp
+      const jspFileName = servletFileName.replace(/_jsp$/, '.jsp');
+      
+      console.log(`JSP Debug: Converting servlet ${servletFileName} to JSP ${jspFileName}`);
+      
+      // Find the JSP file in workspace
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        console.error(`JSP Debug: No workspace folder found`);
+        return null;
+      }
+      
+      // Search common JSP locations
+      const possiblePaths = [
+        path.join(workspaceFolder.uri.fsPath, jspFileName),
+        path.join(workspaceFolder.uri.fsPath, 'src', 'main', 'webapp', jspFileName),
+        path.join(workspaceFolder.uri.fsPath, 'WebContent', jspFileName),
+        path.join(workspaceFolder.uri.fsPath, 'web', jspFileName),
+        path.join(workspaceFolder.uri.fsPath, 'webapp', jspFileName),
+        path.join(workspaceFolder.uri.fsPath, 'src', 'main', 'webapp', 'pages', jspFileName),
+        path.join(workspaceFolder.uri.fsPath, 'src', 'main', 'webapp', 'WEB-INF', 'jsp', jspFileName)
+      ];
+      
+      for (const possiblePath of possiblePaths) {
+        if (fs.existsSync(possiblePath)) {
+          console.log(`JSP Debug: Found JSP file: ${possiblePath}`);
+          return possiblePath;
+        }
+      }
+      
+      console.error(`JSP Debug: Could not find JSP file ${jspFileName} in workspace`);
+      return null;
+      
+    } catch (error) {
+      console.error(`JSP Debug: Error finding JSP file for servlet:`, error);
+      return null;
     }
   }
 
@@ -139,20 +199,17 @@ export class JspDebugTracker implements vscode.DebugAdapterTracker {
       }
 
       const servletContent = fs.readFileSync(servletPath, 'utf8');
-      const lines = servletContent.split('\n');
-
-      // Parse line number mappings from servlet comments
-      lines.forEach((line, servletLineIndex) => {
-        // Look for comments like: // Line 15, JSP file: /index.jsp
-        const match = line.match(/\/\/\s*Line\s+(\d+),\s*JSP\s*file:/i);
-        if (match) {
-          const jspLineNumber = parseInt(match[1]);
-          const servletLineNumber = servletLineIndex + 1;
-          lineMappings.set(servletLineNumber, jspLineNumber);
-        }
-      });
+      
+      // Use the improved parsing from jspMapper
+      const jspToServletMappings = this.jspMapper['parseLineMapping'](servletContent, jspPath);
+      
+      // Reverse the mapping - we need servlet line -> JSP line for stack trace remapping
+      for (const [jspLine, servletLine] of jspToServletMappings.entries()) {
+        lineMappings.set(servletLine, jspLine);
+      }
 
       console.log(`Created ${lineMappings.size} line mappings for ${path.basename(jspPath)}`);
+      console.log(`Sample mappings:`, Array.from(lineMappings.entries()).slice(0, 5));
 
     } catch (error) {
       console.error('Error creating line mappings:', error);
