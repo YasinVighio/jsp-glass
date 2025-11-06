@@ -6,6 +6,8 @@ export interface JspDebugConfig {
   catalinaHome: string;
   catalinaBase?: string;
   webappContext?: string;
+  jspSourceRoot?: string;
+  enableDebugLogging?: boolean;
 }
 
 export class ConfigurationManager {
@@ -77,7 +79,9 @@ export class ConfigurationManager {
   private createDefaultConfig(configPath: string): void {
     const defaultConfig: JspDebugConfig = {
       catalinaHome: "/path/to/tomcat",
-      webappContext: "ROOT"
+      webappContext: "ROOT",
+      jspSourceRoot: "src/main/webapp",
+      enableDebugLogging: true
     };
 
     try {
@@ -127,6 +131,12 @@ export class ConfigurationManager {
    * Find compiled servlet class file for JSP
    */
   public findCompiledServletClass(jspPath: string, webappContext?: string): string | null {
+    const config = this.getConfiguration();
+    if (!config) {
+      console.error('JSP Debug: No configuration available');
+      return null;
+    }
+
     console.log(`JSP Debug: Finding servlet class for JSP: ${jspPath}`);
     
     const servletDir = this.getCompiledServletDirectory(webappContext);
@@ -136,121 +146,116 @@ export class ConfigurationManager {
     }
 
     console.log(`JSP Debug: Servlet directory: ${servletDir}`);
-    console.log(`JSP Debug: Servlet directory exists: ${fs.existsSync(servletDir)}`);
 
-    // Extract relative path from webapp
+    // Get workspace folder
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
       console.error('JSP Debug: No workspace folder found');
       return null;
     }
 
-    console.log(`JSP Debug: Workspace folder: ${workspaceFolder.uri.fsPath}`);
+    // Calculate relative path from jspSourceRoot
+    let relativePath: string = '';
     
-    let relativePath = path.relative(workspaceFolder.uri.fsPath, jspPath);
-    console.log(`JSP Debug: Initial relative path: ${relativePath}`);
-    
-    // Handle webapp subdirectories (src/main/webapp, WebContent, etc.)
-    const webappDirs = ['src/main/webapp', 'WebContent', 'web', 'webapp'];
-    let foundWebappDir = false;
-    for (const webappDir of webappDirs) {
-      if (relativePath.startsWith(webappDir)) {
-        relativePath = relativePath.substring(webappDir.length + 1);
-        console.log(`JSP Debug: Stripped webapp dir '${webappDir}', new relative path: ${relativePath}`);
-        foundWebappDir = true;
-        break;
+    if (config.jspSourceRoot) {
+      // Use configured jspSourceRoot
+      const jspSourcePath = path.join(workspaceFolder.uri.fsPath, config.jspSourceRoot);
+      console.log(`JSP Debug: JSP source root: ${jspSourcePath}`);
+      
+      if (!jspPath.toLowerCase().startsWith(jspSourcePath.toLowerCase())) {
+        console.error(`JSP Debug: JSP file ${jspPath} is not under jspSourceRoot ${jspSourcePath}`);
+        return null;
+      }
+      
+      relativePath = path.relative(jspSourcePath, jspPath);
+      console.log(`JSP Debug: Relative path from jspSourceRoot: ${relativePath}`);
+    } else {
+      // Fallback: try to detect webapp directory
+      const relativeFromWorkspace = path.relative(workspaceFolder.uri.fsPath, jspPath);
+      console.log(`JSP Debug: Relative path from workspace: ${relativeFromWorkspace}`);
+      
+      const webappDirs = ['src/main/webapp', 'WebContent', 'web', 'webapp'];
+      let found = false;
+      
+      for (const webappDir of webappDirs) {
+        if (relativeFromWorkspace.startsWith(webappDir)) {
+          relativePath = relativeFromWorkspace.substring(webappDir.length + 1);
+          console.log(`JSP Debug: Detected webapp dir '${webappDir}', relative path: ${relativePath}`);
+          found = true;
+          break;
+        }
+      }
+      
+      if (!found) {
+        console.warn(`JSP Debug: Could not detect webapp directory. Configure jspSourceRoot in config.json`);
+        relativePath = relativeFromWorkspace;
       }
     }
+
+    // Normalize path separators and preserve directory structure
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+    console.log(`JSP Debug: Normalized path: ${normalizedPath}`);
     
-    if (!foundWebappDir) {
-      console.log(`JSP Debug: No webapp directory prefix found, using full relative path`);
-    }
-
-    // Convert to servlet class file path
-    const classFileName = relativePath
-      .replace(/\\/g, '_')
-      .replace(/\//g, '_')
-      .replace(/\.jsp$/, '_jsp.class');
-
-    console.log(`JSP Debug: Generated class file name: ${classFileName}`);
-
-    const classFilePath = path.join(servletDir, classFileName);
+    // Build class file path preserving directory structure
+    // Example: ui/test/hello.jsp -> org/apache/jsp/ui/test/hello_jsp.class
+    const pathParts = normalizedPath.split('/');
+    const fileName = pathParts.pop()!.replace(/\.jsp$/, '_jsp.class');
+    const dirPath = pathParts.join('/');
+    
+    const classFilePath = dirPath 
+      ? path.join(servletDir, dirPath, fileName)
+      : path.join(servletDir, fileName);
+    
     console.log(`JSP Debug: Looking for class file: ${classFilePath}`);
-    console.log(`JSP Debug: Class file exists: ${fs.existsSync(classFilePath)}`);
-    
-    // Also check for .java file
-    const javaFileName = classFileName.replace('.class', '.java');
-    const javaFilePath = path.join(servletDir, javaFileName);
-    console.log(`JSP Debug: Looking for java file: ${javaFilePath}`);
-    console.log(`JSP Debug: Java file exists: ${fs.existsSync(javaFilePath)}`);
     
     if (fs.existsSync(classFilePath)) {
+      console.log(`JSP Debug: Found class file: ${classFilePath}`);
       return classFilePath;
     }
+
+    // Try .java file
+    const javaFilePath = classFilePath.replace('.class', '.java');
+    console.log(`JSP Debug: Looking for java file: ${javaFilePath}`);
     
     if (fs.existsSync(javaFilePath)) {
       console.log(`JSP Debug: Found .java file but no .class file`);
-      return javaFilePath.replace('.java', '.class'); // Return expected .class path
+      return classFilePath; // Return expected .class path
     }
 
-    // Try alternative naming conventions
-    const jspBaseName = path.basename(jspPath, '.jsp');
-    const alternativeNames = [
-      `${jspBaseName}_jsp.class`,  // Simple name
-      `index_jsp.class`,  // Common index page
-      `${jspBaseName}.class`,  // Without _jsp suffix
-    ];
+    // Debug: list servlet directory contents
+    this.debugListServletDirectory(servletDir, normalizedPath);
 
-    console.log(`JSP Debug: Trying alternative class names:`, alternativeNames);
-
-    for (const altName of alternativeNames) {
-      const altClassPath = path.join(servletDir, altName);
-      const altJavaPath = altClassPath.replace('.class', '.java');
-      
-      console.log(`JSP Debug: Checking alternative: ${altClassPath}`);
-      
-      if (fs.existsSync(altClassPath) || fs.existsSync(altJavaPath)) {
-        console.log(`JSP Debug: Found alternative servlet at: ${altClassPath}`);
-        return altClassPath;
-      }
-    }
-
-    // List actual files in servlet directory for debugging
-    if (fs.existsSync(servletDir)) {
-      try {
-        const files = fs.readdirSync(servletDir, { withFileTypes: true });
-        const fileList = files.map(f => `${f.name} (${f.isDirectory() ? 'dir' : 'file'})`);
-        console.log(`JSP Debug: Contents of servlet directory (${servletDir}):`, fileList);
-        
-        // Look for any files containing our JSP name
-        const matchingFiles = files.filter(f => 
-          !f.isDirectory() && (
-            f.name.includes(jspBaseName) || 
-            f.name.includes('index') ||
-            f.name.endsWith('.java') ||
-            f.name.endsWith('.class')
-          )
-        ).map(f => f.name);
-        console.log(`JSP Debug: Relevant files in servlet directory:`, matchingFiles);
-      } catch (err) {
-        console.error(`JSP Debug: Error listing servlet directory:`, err);
-      }
-    } else {
-      console.error(`JSP Debug: Servlet directory does not exist: ${servletDir}`);
-      
-      // Check parent directories
-      const parentDir = path.dirname(servletDir);
-      if (fs.existsSync(parentDir)) {
-        console.log(`JSP Debug: Parent directory exists: ${parentDir}`);
-        try {
-          const parentFiles = fs.readdirSync(parentDir);
-          console.log(`JSP Debug: Contents of parent directory:`, parentFiles);
-        } catch (err) {
-          console.error(`JSP Debug: Error listing parent directory:`, err);
-        }
-      }
-    }
-
+    console.error(`JSP Debug: Servlet class not found for ${jspPath}`);
     return null;
+  }
+
+  /**
+   * Helper to debug servlet directory contents
+   */
+  private debugListServletDirectory(servletDir: string, expectedPath: string): void {
+    if (!fs.existsSync(servletDir)) {
+      console.error(`JSP Debug: Servlet directory does not exist: ${servletDir}`);
+      return;
+    }
+
+    try {
+      console.log(`JSP Debug: Expected path structure: ${expectedPath}`);
+      console.log(`JSP Debug: Listing servlet directory: ${servletDir}`);
+      
+      // Recursive directory listing
+      const listDir = (dir: string, indent: string = ''): void => {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          console.log(`${indent}${entry.name}${entry.isDirectory() ? '/' : ''}`);
+          if (entry.isDirectory() && indent.length < 20) { // Limit depth
+            listDir(path.join(dir, entry.name), indent + '  ');
+          }
+        }
+      };
+      
+      listDir(servletDir);
+    } catch (err) {
+      console.error(`JSP Debug: Error listing servlet directory:`, err);
+    }
   }
 }

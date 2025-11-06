@@ -24,9 +24,7 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onDebugResolve:jsp",
-    "onDebugInitialConfigurations",
-    "onCommand:jsp.showCompiledServletPath"
+    "*"
   ],
   "contributes": {
     "debuggers": [
